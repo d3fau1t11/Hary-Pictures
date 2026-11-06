@@ -118,6 +118,11 @@ availability. Repeat `--status` while Mux is processing. State is saved in ignor
 
 When ready, choose either publication method:
 
+**Deploy the latest website code before changing any portfolio URLs.** An old
+deployment cannot display Mux HLS URLs. The operator `--publish` command checks
+the live site's bundle for the Mux player and refuses to write when it is absent.
+For SQL publication, first verify the new site is deployed in Netlify yourself.
+
 - Run the generated `test-results/mux-migration.sql` in Supabase's SQL editor.
   It runs in a transaction and is safe to repeat. If any original record changed,
   the entire transaction stops without applying the migration.

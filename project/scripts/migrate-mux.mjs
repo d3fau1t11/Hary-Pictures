@@ -9,6 +9,12 @@ const project = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const importTag = url => 'hary:import:' + createHash('sha256').update(url).digest('hex');
 const quote = value => "'" + String(value).replaceAll("'", "''") + "'";
 
+export function deployedScriptUrls(html, site) {
+  return [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)]
+    .map(match => new URL(match[1], site))
+    .filter(url => url.origin === new URL(site).origin && url.pathname.startsWith('/assets/'));
+}
+
 export function migrationSql(rows, reverse = false) {
   if (!rows.length || rows.some(row => !row.url || row.state !== 'ready')) throw new Error('Every video must be ready before generating SQL.');
   return '-- Update video URLs only; preserve titles, categories, IDs and original files.\nBEGIN;\nDO $migration$\nBEGIN\n' + rows.map(row => {
@@ -91,6 +97,15 @@ export async function run(command, supplied = {}) {
       if (bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WEBP') throw new Error('Mux did not return a WebP thumbnail.');
     }
   }
+  async function verifyDeployment() {
+    const site = env.MIGRATION_SITE_URL || 'https://harypictures.netlify.app';
+    const html = await (await request(new URL('/portfolio', site), { cache: 'no-store' }, 'Deployment verification')).text();
+    for (const url of deployedScriptUrls(html, site)) {
+      const script = await (await request(url, {}, 'Deployment script')).text();
+      if (script.includes('player.mux.com') && script.includes('media-cover')) return;
+    }
+    throw new Error('The live site does not contain the Mux player yet. Deploy the latest main branch before publishing video URLs. Original records preserved.');
+  }
   if (command === '--prepare') {
     const pictures = await inventory();
     const assets = [];
@@ -124,6 +139,7 @@ export async function run(command, supplied = {}) {
     const published = rows.filter(row => row.url && current.some(item => item.id === row.id && item.image_url === row.url)).length;
     console.log(JSON.stringify({ total: rows.length, published, remaining: rows.length - published }));
     if (published !== rows.length) throw new Error('Some video URLs have not been published.');
+    await verifyDeployment();
     await verifyPlayback(rows);
     return;
   }
@@ -136,6 +152,7 @@ export async function run(command, supplied = {}) {
   writeFileSync(resolve(project, 'test-results/mux-migration.sql'), migrationSql(rows));
   writeFileSync(resolve(project, 'test-results/mux-rollback.sql'), migrationSql(rows, true));
   if (command === '--status') { console.log('Playback and thumbnails verified. Migration and rollback SQL written to test-results/.'); return; }
+  await verifyDeployment();
   const key = required('SUPABASE_SERVICE_ROLE_KEY');
   const current = await inventory();
   if (rows.some(row => !current.some(item => item.id === row.id && [row.source, row.url].includes(item.image_url)))) throw new Error('A video changed or was removed. Review before publishing; no records updated.');

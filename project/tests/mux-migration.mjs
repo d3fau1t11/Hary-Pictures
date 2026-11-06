@@ -1,10 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { importTag, migrationSql, planImports } from '../scripts/migrate-mux.mjs';
+import { deployedScriptUrls, importTag, migrationSql, planImports } from '../scripts/migrate-mux.mjs';
 
 const base = 'https://fixture.supabase.co';
 const source = base + '/storage/v1/object/public/pictures/film.mp4';
 const row = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', image_url: source };
+test('deployment check reads only the site bundle, excluding foreign or inline scripts', () => {
+  const urls = deployedScriptUrls('<script type="module" src="/assets/index.js"></script><script src="https://other.test/assets/test.js"></script><script>inline()</script>', 'https://site.test');
+  assert.deepEqual(urls.map(url => url.href), ['https://site.test/assets/index.js']);
+});
 test('shared source imports reuse one slot and resumed imports reuse existing Mux assets', () => {
   const assets = Array.from({ length: 9 }, () => ({}));
   assert.equal(planImports([row, { ...row, id: 'second' }], assets, base).missing.length, 1);
