@@ -97,11 +97,22 @@ use an uploaded cover image. Mux videos use Mux's generated covers.
 without downloading them. Normal future uploads still work entirely from the
 live admin on a phone. This tool is never run during a build or sent to visitors.
 
-Credentials are read from ignored `.env` and `.env.netlify` files (or process
-environment variables). Keep the private `.env.netlify` file out of Git; it can
-also be imported into Netlify's environment settings. It contains only the six
-settings listed above, including both public Supabase settings. Existing unrelated
-Netlify variables such as Telegram settings should be preserved.
+Credentials are read from the single ignored `project/.env` file (or process
+environment variables). Keep this private file out of Git. Copy the six website
+settings listed above from it into Netlify's environment settings, including both
+public Supabase settings. Do not copy a temporary `SUPABASE_SERVICE_ROLE_KEY`
+used for migration into Netlify. Existing unrelated Netlify variables such as
+Telegram settings should be preserved. Netlify does not read your local file
+automatically; its environment settings must be updated separately.
+
+If original videos display a generic film icon, their `.poster.webp` files may
+be missing. Once their Mux imports are ready, an operator can set a temporary
+`SUPABASE_SERVICE_ROLE_KEY` and run `node scripts/migrate-mux.mjs --covers`.
+This fills only missing original-video covers with real frames from the prepared
+Mux videos. It preserves custom covers and video URLs, so the updated local
+gallery can show thumbnails before the streaming migration is published.
+Refresh the gallery afterward. New Mux videos use their generated Mux thumbnail
+directly; they do not need this one-time backfill.
 
 Run from `project/`:
 
@@ -152,6 +163,8 @@ admin flows. A live upload/playback check is still necessary after credentials
 are configured; automated tests cannot verify your provider account or quotas.
 `node --test tests/mux-migration.mjs` checks migration limits, shared sources,
 retry planning and guarded SQL generation without contacting either provider.
+`node --test tests/video-cover-backfill.mjs` checks that cover backfilling preserves
+custom covers and changed records, validates image data, and can be retried.
 
 References: [Mux access tokens](https://www.mux.com/docs/core/stream-video-files),
 [direct uploads](https://www.mux.com/docs/guides/upload-files-directly),

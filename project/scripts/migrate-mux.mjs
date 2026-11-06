@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
+import { backfillVideoCovers } from './backfill-video-covers.mjs';
 
 const project = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const importTag = url => 'hary:import:' + createHash('sha256').update(url).digest('hex');
@@ -134,6 +135,14 @@ export async function run(command, supplied = {}) {
   }
   const rows = load();
   if (!rows.length) throw new Error('No migration state. Run --prepare first.');
+  if (command === '--covers') {
+    const key = required('SUPABASE_SERVICE_ROLE_KEY');
+    await refresh(rows);
+    const current = await inventory();
+    const results = await backfillVideoCovers(rows, { base, key, current });
+    console.log(JSON.stringify({ covers: results, videoRecordsChanged: 0 }));
+    return;
+  }
   if (command === '--verify') {
     const current = await inventory();
     const published = rows.filter(row => row.url && current.some(item => item.id === row.id && item.image_url === row.url)).length;
@@ -143,7 +152,7 @@ export async function run(command, supplied = {}) {
     await verifyPlayback(rows);
     return;
   }
-  if (!['--status', '--publish'].includes(command)) throw new Error('Use --prepare, --status, --publish or --verify.');
+  if (!['--status', '--publish'].includes(command)) throw new Error('Use --prepare, --status, --covers, --publish or --verify.');
   await refresh(rows);
   const ready = rows.filter(row => row.state === 'ready' && row.url).length;
   console.log(JSON.stringify({ total: rows.length, ready, states: rows.map(row => row.state) }));
@@ -168,9 +177,7 @@ export async function run(command, supplied = {}) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const env = {};
-  for (const file of ['.env', '.env.netlify']) {
-    const path = resolve(project, file);
-    if (existsSync(path)) Object.assign(env, parseEnv(readFileSync(path, 'utf8')));
-  }
+  const path = resolve(project, '.env');
+  if (existsSync(path)) Object.assign(env, parseEnv(readFileSync(path, 'utf8')));
   run(process.argv[2], { ...env, ...process.env }).catch(error => { console.error(error.message); process.exitCode = 1; });
 }
