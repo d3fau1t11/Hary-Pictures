@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/admin/AdminGate.tsx",
+    "src/admin/AdminPanel.tsx",
+    "src/admin/Login.tsx",
+    "src/admin/studio/**/*",
+    "src/admin/utils/convertToWebP.ts",
+    "src/vite-env.d.ts"
+  ]
+}

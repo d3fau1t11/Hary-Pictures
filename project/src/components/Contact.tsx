@@ -234,15 +234,6 @@ const Contact: React.FC = () => {
         return;
       }
 
-      const data = await response.json();
-      console.log("Telegram function response:", data);
-      
-      if (data.results) {
-        console.log(`Message sent to ${data.results.success.length} chat(s)`);
-        if (data.results.failed.length > 0) {
-          console.warn(`Failed to send to ${data.results.failed.length} chat(s):`, data.results.failed);
-        }
-      }
     } catch (error) {
       console.error("Error calling Telegram function:", error);
     }
@@ -366,7 +357,6 @@ const Contact: React.FC = () => {
     setFormStatus('submitting');
     setErrorMessage('');
 
-    console.log('Form submission started with data:', formData);
 
     try {
       // Honeypot check - if filled, it's likely a bot
@@ -460,7 +450,7 @@ const Contact: React.FC = () => {
         .insert([sanitizedData]);
 
       if (error) {
-        console.error('Supabase error:', error);
+        console.error('Contact submission was rejected.');
         
         // Handle specific database constraint error
         if (error.message.includes('check_telegram_format')) {
@@ -470,15 +460,15 @@ const Contact: React.FC = () => {
           return;
         }
         
-        throw new Error(`Database error: ${error.message}`);
+        throw new Error('Your message could not be saved. Please try again.');
       }
 
       console.log('Data successfully stored in Supabase');
 
       // Prepare modern Telegram message with sanitized data
       const contactInfoMsg = formData.contactType === 'email' 
-        ? `✉️ *Email:* ${sanitizedData.email}`
-        : `📱 *Telegram:* ${sanitizedData.telegram_username ? `@${sanitizedData.telegram_username}` : 'Not provided'}`;
+        ? `✉️ Email: ${sanitizedData.email}`
+        : `📱 Telegram: ${sanitizedData.telegram_username ? `@${sanitizedData.telegram_username}` : 'Not provided'}`;
       
       const formatDate = (dateString: string) => {
         if (!dateString) return 'N/A';
@@ -508,25 +498,24 @@ const Contact: React.FC = () => {
       };
 
       const message = `
-🆕 *New Contact Form Submission* ────────────
-👤 *Name:* ${sanitizedData.name}
+🆕 New Contact Form Submission ────────────
+👤 Name: ${sanitizedData.name}
 ${contactInfoMsg}
-📞 *Phone:* ${sanitizedData.phone || 'N/A'}
+📞 Phone: ${sanitizedData.phone || 'N/A'}
 
-🖼️ *Service:* ${sanitizedData.service || 'N/A'}
-📅 *Preferred Date:* ${formatDate(sanitizedData.date)}
+🖼️ Service: ${sanitizedData.service || 'N/A'}
+📅 Preferred Date: ${formatDate(sanitizedData.date)}
 
-💬 *Message:*
+💬 Message:
 ${sanitizedData.message}
 
-⏱️ *Submitted:* ${formatTimestamp()}
+⏱️ Submitted: ${formatTimestamp()}
 ───────────────────────────────
       `.trim();
 
       // Send to Telegram
       console.log('Sending Telegram message...');
       await sendTelegramMessage(message);
-      console.log('Telegram message sent successfully');
 
       // Update rate limiting
       setSubmissionAttempts(prev => prev + 1);
@@ -549,7 +538,7 @@ ${sanitizedData.message}
       // Hide success animation after 3 seconds
       setTimeout(() => setShowSuccessAnimation(false), 3000);
     } catch (err) {
-      console.error('Error submitting form:', err);
+      console.error('Contact submission failed.');
       setFormStatus('error');
       setErrorMessage(
         err instanceof Error ? err.message : 'Something went wrong. Try again.'

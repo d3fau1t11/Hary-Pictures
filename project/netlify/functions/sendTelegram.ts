@@ -1,201 +1,106 @@
-import { Handler } from '@netlify/functions';
+import type { Config } from '@netlify/functions';
 
-interface TelegramMessage {
-  message: string;
-}
+// Applied by Netlify at the edge, shared across function instances.
+export const config: Config = {
+  path: '/.netlify/functions/sendTelegram',
+  rateLimit: { windowLimit: 5, windowSize: 180, aggregateBy: ['ip', 'domain'] },
+};
 
-interface TelegramResponse {
-  ok: boolean;
-  result?: any;
-  error_code?: number;
-  description?: string;
-}
+const MAX_BODY_BYTES = 20_000;
 
-const isOriginAllowed = (origin: string): boolean => {
-  if (!origin) return true; // Direct server-to-server or same-origin requests where Origin header is absent
+function isOriginAllowed(origin: string): boolean {
   try {
     const url = new URL(origin);
-    const host = url.hostname.toLowerCase();
-
-    // Local development
-    if (host === 'localhost' || host === '127.0.0.1') return true;
-
-    // Production & Netlify deploy previews
-    if (host === 'harypictures.netlify.app' || host.endsWith('.netlify.app')) return true;
-
-    // Custom domain from environment variables if set
-    if (process.env.URL) {
-      try {
-        const configuredUrl = new URL(process.env.URL);
-        if (configuredUrl.hostname.toLowerCase() === host) return true;
-      } catch {
-        // Ignore invalid URL in env
-      }
-    }
-
-    if (process.env.ALLOWED_ORIGINS) {
-      const allowedList = process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim().toLowerCase());
-      if (allowedList.includes(origin.toLowerCase()) || allowedList.includes(host)) return true;
-    }
-
-    return false;
+    if (url.origin !== origin) return false;
+    const local = process.env.NETLIFY_DEV === 'true' && url.protocol === 'http:' &&
+      ['localhost', '127.0.0.1'].includes(url.hostname);
+    if (local) return true;
+    if (url.protocol !== 'https:') return false;
+    // Exact deployment origins only; never trust every Netlify site or preview.
+    const allowed = ['https://harypictures.netlify.app', process.env.URL,
+      process.env.DEPLOY_PRIME_URL, ...(process.env.ALLOWED_ORIGINS || '').split(',')];
+    return allowed.some(value => value?.trim() === origin);
   } catch {
     return false;
   }
-};
+}
 
-const handler: Handler = async (event, context) => {
-  const origin = event.headers['origin'] || event.headers['Origin'] || '';
-  const originAllowed = isOriginAllowed(origin);
-  const corsOriginHeader = originAllowed && origin ? origin : (origin ? 'null' : '*');
-
-  // Handle preflight requests
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 204,
-      headers: {
-        'Access-Control-Allow-Origin': corsOriginHeader,
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      },
-      body: '',
-    };
-  }
-
-  // Common CORS headers
-  const corsHeaders = {
+export default async function handler(request: Request): Promise<Response> {
+  const origin = request.headers.get('origin') || '';
+  const allowed = isOriginAllowed(origin);
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': corsOriginHeader,
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Vary': 'Origin',
   };
-
-  // Only allow POST requests
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Method not allowed' }),
-    };
+  if (allowed) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Allow-Headers'] = 'Content-Type';
+    headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS';
+  }
+  const reply = (status: number, body: object) => new Response(JSON.stringify(body), { status, headers });
+  if (!allowed) return reply(403, { error: 'Forbidden' });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+  if (request.method !== 'POST') {
+    headers.Allow = 'POST, OPTIONS';
+    return reply(405, { error: 'Method not allowed' });
+  }
+  if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+    return reply(415, { error: 'Expected application/json' });
+  }
+  if (Number(request.headers.get('content-length')) > MAX_BODY_BYTES) {
+    return reply(413, { error: 'Request too large' });
   }
 
-  // Reject unauthorized origins
-  if (origin && !originAllowed) {
-    return {
-      statusCode: 403,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Forbidden: origin not allowed' }),
-    };
-  }
-
+  let body: unknown;
   try {
-    // Parse request body
-    const body: TelegramMessage = JSON.parse(event.body || '{}');
-    const message = body?.message;
-
-    if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Message is required' }),
-      };
-    }
-
-    if (message.length > 4000) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Message exceeds maximum allowed length of 4000 characters' }),
-      };
-    }
-
-    // Server-side environment variables
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    const targetChatIds = (process.env.TELEGRAM_CHAT_IDS?.split(',') || [])
-      .map((id) => id.trim())
-      .filter(Boolean);
-
-    if (!botToken) {
-      console.error('TELEGRAM_BOT_TOKEN not configured in server environment');
-      return {
-        statusCode: 500,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Telegram bot token not configured' }),
-      };
-    }
-
-    if (targetChatIds.length === 0) {
-      console.error('No chat IDs configured in server environment');
-      return {
-        statusCode: 500,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'No chat IDs configured' }),
-      };
-    }
-
-    // Send message to configured chat IDs
-    const results: { success: string[]; failed: { chatId: string; error: string }[] } = {
-      success: [],
-      failed: [],
-    };
-
-    for (const chatId of targetChatIds) {
-      try {
-        const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: message,
-            parse_mode: 'Markdown',
-            disable_web_page_preview: true,
-          }),
-        });
-
-        const data: TelegramResponse = await response.json();
-
-        if (data.ok) {
-          results.success.push(chatId);
-          console.log(`Message sent successfully to chat ${chatId}`);
-        } else {
-          results.failed.push({
-            chatId,
-            error: data.description || 'Unknown error',
-          });
-          console.error(`Failed to send message to chat ${chatId}:`, data.description);
-        }
-      } catch (error) {
-        results.failed.push({
-          chatId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        console.error(`Error sending message to chat ${chatId}:`, error);
+    const reader = request.body?.getReader();
+    if (!reader) return reply(400, { error: 'Message is required' });
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_BODY_BYTES) {
+        await reader.cancel();
+        return reply(413, { error: 'Request too large' });
       }
+      chunks.push(value);
     }
-
-    // Return results
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        success: results.success.length > 0,
-        results,
-        message: `Message sent to ${results.success.length} chat(s), failed for ${results.failed.length} chat(s)`,
-      }),
-    };
-  } catch (error) {
-    console.error('Error in sendTelegram function:', error);
-    return {
-      statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        error: 'Internal server error',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      }),
-    };
+    body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return reply(400, { error: 'Invalid JSON body' });
   }
-};
+  if (!body || typeof body !== 'object' || Array.isArray(body) ||
+      !('message' in body) || typeof body.message !== 'string' ||
+      !body.message.trim() || body.message.length > 4000 ||
+      Object.keys(body).some(key => key !== 'message')) {
+    return reply(400, { error: 'Provide a message of 1 to 4000 characters' });
+  }
+  const message = body.message.trim();
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chats = [...new Set((process.env.TELEGRAM_CHAT_IDS || '').split(',').map(id => id.trim()).filter(Boolean))];
+  if (!token || !chats.length) return reply(503, { error: 'Notification service unavailable' });
 
-export { handler };
+  const deliveries = await Promise.all(chats.map(async chatId => {
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(8000),
+        // Plain text prevents user input from becoming Telegram markup.
+        body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
+      });
+      const data: unknown = await response.json();
+      return response.ok && typeof data === 'object' && data !== null && 'ok' in data && data.ok === true;
+    } catch {
+      // Upstream errors may contain the token-bearing URL. Never log or return them.
+      return false;
+    }
+  }));
+  return deliveries.some(Boolean)
+    ? reply(200, { success: true })
+    : reply(502, { error: 'Notification could not be delivered' });
+}

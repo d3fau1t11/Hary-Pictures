@@ -9,8 +9,11 @@
     "build": "vite build && node -e \"const fs=require('fs'),path=require('path');const files=['robots.txt','sitemap.xml','_headers','_redirects'];const src='public',dst='dist';fs.mkdirSync(dst,{recursive:true});for(const f of files){const s=path.join(src,f),d=path.join(dst,f);if(fs.existsSync(s)){fs.copyFileSync(s,d);}}\"",
     "postbuild": "node scripts/prerender.mjs",
     "lint": "eslint .",
+    "check:admin": "tsc --noEmit -p tsconfig.admin.json && eslint src/admin/AdminGate.tsx src/admin/AdminPanel.tsx src/admin/Login.tsx src/admin/studio src/admin/utils/convertToWebP.ts src/App.tsx",
+    "test:admin": "node tests/admin-ui.mjs",
     "preview": "vite preview",
-    "sitemap": "node scripts/generate-sitemap.mjs --base=${SITEMAP_BASE_URL:-https://harypictures.netlify.app}"
+    "sitemap": "node scripts/generate-sitemap.mjs --base=${SITEMAP_BASE_URL:-https://harypictures.netlify.app}",
+    "check:security": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext netlify/functions/sendTelegram.ts && eslint netlify/functions/sendTelegram.ts && node --test tests/security.mjs && node tests/scan-secrets.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
@@ -22,21 +25,30 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
-    "@netlify/functions": "^4.2.5",
+    "@netlify/functions": "^6.1.1",
+    "@types/node": "^24.19.2",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.18",
     "eslint": "^9.9.1",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",
     "globals": "^15.9.0",
+    "mime-types": "^2.1.35",
     "postcss": "^8.4.35",
+    "puppeteer": "^25.16.0",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.3.0",
-    "vite": "^5.4.2",
-    "puppeteer": "^23.6.0",
-    "mime-types": "^2.1.35"
+    "vite": "^7.3.7"
+  },
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
+    }
   }
 }

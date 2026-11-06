@@ -1,5 +1,7 @@
 // Test script for the Netlify Telegram function
-// Run this with: node test-telegram-function.js
+// Manual integration only: this sends a real Telegram message.
+// Use npm run check:security for automated tests with mocked delivery.
+// Run with NETLIFY_DEV=true in Netlify Dev and: node test-telegram-function.js
 
 const testMessage = `
 🆕 *New Contact Form Submission* ────────────
@@ -26,6 +28,7 @@ async function testTelegramFunction() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Origin': 'http://localhost:8888',
       },
       body: JSON.stringify({
         message: testMessage

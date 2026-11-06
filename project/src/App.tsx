@@ -6,7 +6,6 @@ import Portfolio from './components/Portfolio';
 import About from './components/About';
 import Services from './components/Services';
 import Contact from './components/Contact';
-import { AdminPanel } from './admin';
 import AdminGate from './admin/AdminGate';
 import NotFound from './components/NotFound';
 
@@ -80,24 +79,21 @@ function AppContent() {
     metaDescription.setAttribute('content', descriptions[pathname] || defaultDescription);
   }, [location]);
 
+  const Content = /^\/admin(?:\/|$)/.test(location.pathname) ? 'div' : 'main';
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 dark:from-slate-900 dark:via-blue-900 dark:to-slate-800">
-      <Header currentPage={currentPage} onPageChange={setCurrentPage} />
-      <main>
+      {!/^\/admin(?:\/|$)/.test(location.pathname) && <Header currentPage={currentPage} onPageChange={setCurrentPage} />}
+      <Content>
         <Routes>
           <Route path="/" element={<Home onPageChange={setCurrentPage} />} />
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/about" element={<About />} />
           <Route path="/services" element={<Services onPageChange={setCurrentPage} />} />
           <Route path="/contact" element={<Contact />} />
-          <Route path="/admin" element={<AdminGate />} />
-          <Route path="/admin/categories" element={<AdminPanel initialSection='categories' />} />
-          <Route path="/admin/media" element={<AdminPanel initialSection='media' />} />
-          {/* Removed /admin/overview per design; use /admin/gallery instead */}
-          <Route path="/admin/gallery" element={<AdminPanel initialSection='gallery' />} />
+          <Route path="/admin/*" element={<AdminGate />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
-      </main>
+      </Content>
     </div>
   );
 }

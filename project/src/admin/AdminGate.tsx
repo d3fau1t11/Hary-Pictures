@@ -1,68 +1,34 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Login from './Login';
 import AdminPanel from './AdminPanel';
+import './studio/studio.css';
 
-const AdminGate: React.FC = () => {
+export default function AdminGate() {
   const [loading, setLoading] = useState(true);
-  const [isAuthed, setIsAuthed] = useState(false);
-
+  const [email, setEmail] = useState<string | null>(null);
+  const [recovery, setRecovery] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
   useEffect(() => {
-    let isMounted = true;
-
-    async function checkSession() {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (!isMounted) return;
-        
-        if (error) {
-          console.error('Session check error:', error);
-          setIsAuthed(false);
-        } else {
-          setIsAuthed(!!session);
-        }
-        setLoading(false);
-      } catch (error) {
-        console.error('Session check failed:', error);
-        if (!isMounted) return;
-        setIsAuthed(false);
-        setLoading(false);
-      }
-    }
-
-    checkSession();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!isMounted) return;
-      
-      // Handle different auth events
-      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !session) {
-        setIsAuthed(false);
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' && session) {
-        setIsAuthed(!!session);
-      }
+    let mounted = true;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      setEmail(session?.user.email || null);
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
       setLoading(false);
     });
-
-    return () => {
-      isMounted = false;
-      sub.subscription.unsubscribe();
-    };
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!mounted) return;
+      setEmail(error ? null : data.session?.user.email || null);
+      setLoading(false);
+    }).catch(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; subscription.unsubscribe(); };
   }, []);
-
-  if (loading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthed) {
-    return <Login />;
-  }
-
-  return <AdminPanel initialSection="dashboard" />;
-};
-
-export default AdminGate;
+  if (loading) return <div className="studio studio-loading" role="status"><Loader2 className="studio-spin" size={26} /><p>Opening your studio…</p></div>;
+  if (!email) return <Login />;
+  if (recovery || location.pathname === '/admin/reset-password') return <Login recovery onPasswordChanged={() => { setRecovery(false); navigate('/admin/library', { replace: true }); }} />;
+  return <AdminPanel email={email} />;
+}

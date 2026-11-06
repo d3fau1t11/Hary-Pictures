@@ -23,7 +23,11 @@ import mime from 'mime-types';
 
 const server = http.createServer((req, res) => {
   let reqPath = req.url.split('?')[0];
-  let filePath = path.join(distDir, reqPath);
+  let filePath = path.resolve(distDir, '.' + reqPath);
+  if (!filePath.startsWith(distDir + path.sep) && filePath !== distDir) {
+    res.writeHead(403).end();
+    return;
+  }
   if (reqPath.endsWith('/')) filePath = path.join(distDir, reqPath, 'index.html');
   if (!fs.existsSync(filePath)) {
     // SPA fallback
@@ -34,12 +38,12 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-await new Promise((resolve) => server.listen(4173, resolve));
+await new Promise((resolve) => server.listen(4173, '127.0.0.1', resolve));
 
-const baseUrl = 'http://localhost:4173';
+const baseUrl = 'http://127.0.0.1:4173';
 
 const browser = await puppeteer.launch({ 
-  headless: 'new',
+  headless: true,
   args: ['--no-sandbox', '--disable-setuid-sandbox']
 });
 try {

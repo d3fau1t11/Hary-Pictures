@@ -1,130 +1,56 @@
-import React, { useState } from 'react';
+import { FormEvent, useState } from 'react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { supabase } from './supabaseClient';
-import { LogIn, Eye, EyeOff, Mail, Lock } from 'lucide-react';
+import { messageOf } from './studio/data';
+import Brand, { BrandMark } from './studio/Brand';
 
-const Login: React.FC = () => {
+export default function Login({ recovery = false, onPasswordChanged }: { recovery?: boolean; onPasswordChanged?: () => void }) {
+  const [mode, setMode] = useState<'login' | 'forgot'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const emailError = submitted && !recovery && !validEmail;
+  const passwordError = submitted && (recovery ? password.length < 8 : mode === 'login' && !password);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setSubmitted(true); setError(''); setNotice('');
+    if ((!recovery && !validEmail) || (recovery ? password.length < 8 : mode === 'login' && !password)) return;
+    setBusy(true);
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (signInError) throw signInError;
-    } catch (err) {
-      const msg = (err as Error).message || 'Login failed';
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
+      if (recovery) {
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+        onPasswordChanged?.();
+      } else if (mode === 'forgot') {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin + '/admin/reset-password' });
+        if (error) throw error;
+        setNotice('If an account exists for this email, you’ll receive a password reset link.');
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw new Error(error.message === 'Invalid login credentials' ? 'The email or password is incorrect. Please try again.' : error.message);
+      }
+    } catch (error) { setError(messageOf(error)); }
+    finally { setBusy(false); }
   }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center px-4">
-      <div className="relative w-full max-w-md">
-        <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-3xl blur opacity-20" />
-        <div className="relative w-full rounded-3xl bg-slate-900/70 backdrop-blur-xl border border-white/10 shadow-2xl p-8">
-          <div className="text-center mb-6">
-            <h1 className="text-3xl font-extrabold tracking-tight text-white">
-              Welcome back
-            </h1>
-            <p className="text-sm text-gray-400 mt-2">Sign in to access the Admin Panel</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-xs font-medium text-gray-300 mb-2">Email</label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                  <Mail className="w-5 h-5" />
-                </span>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onInvalid={(e) => {
-                    const el = e.target as HTMLInputElement;
-                    if (!el.value) el.setCustomValidity('Please enter your email address.');
-                    else el.setCustomValidity('Please enter a valid email address.');
-                  }}
-                  onInput={(e) => (e.target as HTMLInputElement).setCustomValidity('')}
-                  placeholder="you@example.com"
-                  className="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-800/70 text-white placeholder-gray-400 border border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 focus:outline-none transition invalid:border-red-500"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-xs font-medium text-gray-300">Password</label>
-              </div>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                  <Lock className="w-5 h-5" />
-                </span>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onInvalid={(e) => {
-                    const el = e.target as HTMLInputElement;
-                    if (!el.value) el.setCustomValidity('Please enter your password.');
-                  }}
-                  onInput={(e) => (e.target as HTMLInputElement).setCustomValidity('')}
-                  placeholder="Your password"
-                  className="w-full pl-11 pr-12 py-3 rounded-xl bg-slate-800/70 text-white placeholder-gray-400 border border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 focus:outline-none transition invalid:border-red-500"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white transition-colors"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-            </div>
-
-            {error && (
-              <div className="text-red-400 text-sm bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 disabled:from-blue-900 disabled:to-cyan-900 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-blue-800/30"
-            >
-              {loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Signing in...
-                </>
-              ) : (
-                <>
-                  <LogIn className="w-4 h-4" />
-                  Sign In
-                </>
-              )}
-            </button>
-
-            <p className="text-center text-xs text-gray-500 mt-2">
-              Protected area • Authorized users only
-            </p>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default Login;
+  function changeMode() { setMode(mode === 'login' ? 'forgot' : 'login'); setError(''); setNotice(''); setSubmitted(false); }
+  return <div className="studio studio-login">
+    <header className="studio-login-header"><Brand to="/" /><Link className="studio-text-link" to="/" aria-label="Back to website"><ArrowLeft size={16} /><span>Back to website</span></Link></header>
+    <main className="studio-login-main">
+      <section className="studio-login-card" aria-labelledby="login-title"><BrandMark className="studio-mark" /><h2 id="login-title">{recovery ? 'Set a new password' : mode === 'forgot' ? 'Let’s get you back in' : 'Welcome back'}</h2><p className="studio-muted">{recovery ? 'Choose a password with at least 8 characters.' : mode === 'forgot' ? 'We’ll email you a link to reset your password.' : 'Sign in to manage your portfolio.'}</p>
+        <form onSubmit={submit} noValidate className="studio-form">
+          {!recovery && <div className="studio-field"><label htmlFor="studio-email">Email address</label><input id="studio-email" name="email" type="email" autoComplete="username" inputMode="email" autoCapitalize="none" spellCheck={false} value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com" aria-invalid={Boolean(emailError)} aria-describedby={emailError ? 'email-error' : undefined} disabled={busy} required />{emailError && <p id="email-error" className="studio-field-error">Enter a valid email address.</p>}</div>}
+          {(recovery || mode === 'login') && <div className="studio-field"><div className="studio-label-row"><label htmlFor="studio-password">{recovery ? 'New password' : 'Password'}</label>{!recovery && <button type="button" className="studio-text-link" disabled={busy} onClick={changeMode}>Forgot password?</button>}</div><div className="studio-password"><input id="studio-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={recovery ? 'new-password' : 'current-password'} value={password} onChange={event => setPassword(event.target.value)} placeholder={recovery ? 'At least 8 characters' : 'Enter your password'} aria-invalid={Boolean(passwordError)} aria-describedby={passwordError ? 'password-error' : undefined} disabled={busy} required /><button type="button" className="studio-icon-button" aria-label={showPassword ? 'Hide password' : 'Show password'} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={19} /> : <Eye size={19} />}</button></div>{passwordError && <p id="password-error" className="studio-field-error">{recovery ? 'Use at least 8 characters.' : 'Enter your password.'}</p>}</div>}
+          {error && <p className="studio-alert" role="alert">{error}</p>}{notice && <p className="studio-notice" role="status">{notice}</p>}
+          <button className="studio-button studio-primary studio-full" disabled={busy}>{busy ? <><Loader2 size={18} className="studio-spin" /> Please wait…</> : <>{recovery ? 'Save password' : mode === 'forgot' ? 'Send reset link' : 'Sign in'}<ArrowRight size={18} /></>}</button>
+          {!recovery && mode === 'forgot' && <button type="button" className="studio-button studio-quiet studio-full" onClick={changeMode}>Back to sign in</button>}
+        </form><p className="studio-login-footnote">A private workspace for the Hary Pictures team.</p>
+      </section>
+    </main><footer className="studio-login-footer">Hary Pictures <span>Made for the moments that matter.</span></footer>
+  </div>;
+}
