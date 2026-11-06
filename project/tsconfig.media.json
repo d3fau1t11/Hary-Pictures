@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/media/**/*",
+    "src/components/Home.tsx",
+    "src/components/Portfolio.tsx",
+    "src/components/Services.tsx",
+    "src/vite-env.d.ts"
+  ]
+}

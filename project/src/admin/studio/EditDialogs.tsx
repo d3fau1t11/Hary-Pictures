@@ -1,6 +1,9 @@
 import { FormEvent, useState } from 'react';
 import { Loader2, Trash2 } from 'lucide-react';
 import Dialog from './Dialog';
+import VideoPlayer from '../../media/VideoPlayer';
+import { muxPlaybackId } from '../../media/video';
+import { muxEnabled } from '../../media/muxUploads';
 import { deleteCategory, deleteMedia, isVideo, MediaItem, mediaTime, messageOf, saveCategory, StudioCategory, updateMedia } from './data';
 
 export function CategoryDialog({ category, onClose, onSaved }: { category?: StudioCategory; onClose: () => void; onSaved: (message: string) => void }) {
@@ -15,7 +18,7 @@ export function CategoryDialog({ category, onClose, onSaved }: { category?: Stud
   }
   return <Dialog title={category ? 'Edit category' : 'Create category'} busy={busy} onClose={onClose}><form className="studio-form" onSubmit={submit}><p className="studio-muted">Group your work so visitors can explore it easily.</p><div className="studio-field"><label htmlFor="studio-category-name">Category name</label><input id="studio-category-name" autoFocus value={name} maxLength={100} onChange={event => setName(event.target.value)} placeholder="e.g. Weddings or ሰርግ" required disabled={busy} /><p className="studio-help">Use the name you want visitors to see, in any language.</p></div>{error && <p className="studio-alert" role="alert">{error}</p>}<div className="studio-dialog-actions"><button type="button" className="studio-button studio-quiet" disabled={busy} onClick={onClose}>Cancel</button><button className="studio-button studio-primary" disabled={busy || !name.trim()}>{busy ? 'Saving…' : category ? 'Save changes' : 'Create category'}</button></div></form></Dialog>;
 }
-export function MediaDialog({ item, categories, onClose, onSaved, onDelete }: { item: MediaItem; categories: StudioCategory[]; onClose: () => void; onSaved: (message: string) => void; onDelete: () => void }) {
+export function MediaDialog({ item, categories, onClose, onSaved, onDelete, onCover, onReplace, onOptimize }: { item: MediaItem; categories: StudioCategory[]; onClose: () => void; onSaved: (message: string) => void; onDelete: () => void; onCover: () => void; onReplace: () => void; onOptimize: () => Promise<void> }) {
   const [title, setTitle] = useState(item.title);
   const [category, setCategory] = useState(item.category_id || item.categories?.id || '');
   const [busy, setBusy] = useState(false);
@@ -26,7 +29,8 @@ export function MediaDialog({ item, categories, onClose, onSaved, onDelete }: { 
     catch (failure) { setError(messageOf(failure)); } finally { setBusy(false); }
   }
   return <Dialog title="Media details" onClose={onClose} busy={busy} wide><form className="studio-form" onSubmit={submit}>
-    {isVideo(item.image_url) ? <video className="studio-detail-preview" src={item.image_url} controls playsInline preload="metadata" /> : <a href={item.image_url} target="_blank" rel="noreferrer" aria-label="Open full-size photo in a new tab"><img className="studio-detail-preview" src={item.image_url} alt={item.title} /></a>}
+    {isVideo(item.image_url) ? <VideoPlayer src={item.image_url} title={item.title} /> : <a href={item.image_url} target="_blank" rel="noreferrer" aria-label="Open full-size photo in a new tab"><img className="studio-detail-preview" src={item.image_url} alt={item.title} /></a>}
+    {isVideo(item.image_url) && <div className="studio-dialog-actions">{!muxPlaybackId(item.image_url) && <button type="button" className="studio-button studio-quiet" disabled={busy} onClick={onCover}>Change video cover</button>}{muxEnabled && !muxPlaybackId(item.image_url) && <button type="button" className="studio-button studio-quiet" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await onOptimize(); } catch (failure) { setError(messageOf(failure)); } finally { setBusy(false); } }}>Optimize for streaming</button>}<button type="button" className="studio-button studio-quiet" disabled={busy} onClick={onReplace}>Replace video</button></div>}
     {Boolean(mediaTime(item)) && <p className="studio-detail-meta">Added {new Date(mediaTime(item)).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>}
     <div className="studio-field"><label htmlFor="studio-media-title">Title</label><input id="studio-media-title" value={title} onChange={event => setTitle(event.target.value)} maxLength={200} required disabled={busy} /></div>
     <div className="studio-field"><label htmlFor="studio-media-category">Category</label><select id="studio-media-category" value={category} onChange={event => setCategory(event.target.value)} required disabled={busy}><option value="">Choose a category</option>{categories.map(row => <option key={row.id} value={row.id}>{row.name_am}</option>)}</select></div>

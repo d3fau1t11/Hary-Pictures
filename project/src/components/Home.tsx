@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Instagram } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import MediaCover from '../media/MediaCover';
 import { supabase } from '../admin/supabaseClient';
 // JWT error handling is now built into the fetch function
 
@@ -44,7 +45,7 @@ interface PortfolioItem {
   image: string;
 }
 
-const Home: React.FC<HomeProps> = ({ onPageChange }) => {
+const Home: React.FC<HomeProps> = () => {
   const navigate = useNavigate();
   const [isVisible, setIsVisible] = useState<{ [key: string]: boolean }>({});
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
@@ -66,157 +67,29 @@ const Home: React.FC<HomeProps> = ({ onPageChange }) => {
     navigate(url);
   };
 
-  // Fetch portfolio data from Supabase
+  // Category covers may be photographs or stored video posters.
   const fetchPortfolioData = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-      
-      // Check if we have a valid session, if not, sign out and retry
-      const { error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError) {
-        console.warn('Session check failed:', sessionError);
-        // Clear any invalid session
-        await supabase.auth.signOut();
-      }
-      
-      // Fetch pictures with categories
-      const { data: pictures, error } = await supabase
-        .from('pictures')
-        .select(`
-          id, 
-          title, 
-          image_url, 
-          category_id,
-          categories!inner(id, name_am, slug)
-        `);
-
-      if (error) {
-        // If it's a JWT error, try to refresh the session
-        if (error.message.includes('JWT') || error.message.includes('expired')) {
-          console.warn('JWT expired, attempting to refresh session...');
-          await supabase.auth.signOut();
-          // Retry the request after clearing the session
-          const retryResult = await supabase
-            .from('pictures')
-            .select(`
-              id, 
-              title, 
-              image_url, 
-              category_id,
-              categories!inner(id, name_am, slug)
-            `);
-          if (retryResult.error) {
-            throw new Error(`Failed to fetch pictures: ${retryResult.error.message}`);
-          }
-          // Use the retry result data
-          const transformedPictures = (retryResult.data || [])
-            .map(picture => ({
-              ...picture,
-              categories: Array.isArray(picture.categories) ? picture.categories[0] || null : picture.categories
-            }))
-            .filter(picture => {
-              const cat = picture.categories;
-              const name = cat?.name_am?.toLowerCase().trim();
-              const slug = cat?.slug?.toLowerCase().trim();
-              // Exclude About Me and Hero (by name or slug, normalized)
-              return !!name && name !== 'about me' && name !== 'hero' && slug !== 'hero';
-            });
-
-          // Group pictures by category and get one random representative image per category
-          const categoryMap = new Map<string, Picture[]>();
-          transformedPictures.forEach(picture => {
-            if (picture.categories) {
-              const categoryName = picture.categories.name_am;
-              if (!categoryMap.has(categoryName)) {
-                categoryMap.set(categoryName, []);
-              }
-              categoryMap.get(categoryName)!.push(picture);
-            }
-          });
-
-          // Select one random image from each category
-          const selectedPictures: Picture[] = [];
-          categoryMap.forEach((pictures) => {
-            if (pictures.length > 0) {
-              const randomIndex = Math.floor(Math.random() * pictures.length);
-              selectedPictures.push(pictures[randomIndex]);
-            }
-          });
-
-          // Convert to portfolio items with appropriate sizes
-          const portfolioItems: PortfolioItem[] = selectedPictures.map((picture, index) => ({
-            id: picture.id,
-            title: picture.title || '',
-            category: picture.categories?.name_am || 'Uncategorized',
-            description: picture.title || '',
-            image: picture.image_url || '',
-            // Alternate between different sizes for visual variety
-            size: index % 3 === 0 ? 'large' : index % 3 === 1 ? 'medium' : 'small'
-          }));
-
-          setPortfolioItems(portfolioItems);
-          return;
-        } else {
-          throw new Error(`Failed to fetch pictures: ${error.message}`);
-        }
-      }
-
-      // Transform pictures data to handle Supabase's relationship structure
-      const transformedPictures = (pictures || [])
-        .map(picture => ({
-          ...picture,
-          categories: Array.isArray(picture.categories) ? picture.categories[0] || null : picture.categories
-        }))
-        .filter(picture => {
-          const cat = picture.categories;
-          const name = cat?.name_am?.toLowerCase().trim();
-          const slug = cat?.slug?.toLowerCase().trim();
-          // Exclude About Me and Hero (by name or slug, normalized)
-          return !!name && name !== 'about me' && name !== 'hero' && slug !== 'hero';
-        });
-
-      // Group pictures by category and get one random representative image per category
+      const { data, error } = await supabase.from('pictures')
+        .select('id,title,image_url,categories!inner(id,name_am,slug)');
+      if (error) throw error;
       const categoryMap = new Map<string, Picture[]>();
-      transformedPictures.forEach(picture => {
-        if (picture.categories) {
-          const categoryName = picture.categories.name_am;
-          if (!categoryMap.has(categoryName)) {
-            categoryMap.set(categoryName, []);
-          }
-          categoryMap.get(categoryName)!.push(picture);
-        }
-      });
-
-      // Select one random image from each category
-      const selectedPictures: Picture[] = [];
-      categoryMap.forEach((pictures) => {
-        if (pictures.length > 0) {
-          const randomIndex = Math.floor(Math.random() * pictures.length);
-          selectedPictures.push(pictures[randomIndex]);
-        }
-      });
-
-      // Convert to portfolio items with appropriate sizes
-      const items: PortfolioItem[] = selectedPictures.map((picture) => ({
-        title: picture.categories?.name_am || 'Other',
-        size: 'medium' as 'large' | 'medium' | 'small',
-        image: picture.image_url
+      for (const row of data || []) {
+        const category = Array.isArray(row.categories) ? row.categories[0] : row.categories;
+        if (!category || ['hero', 'about-me', 'aboutme'].includes(category.slug.toLowerCase()) || ['hero', 'about me'].includes(category.name_am.toLowerCase().trim())) continue;
+        const group = categoryMap.get(category.id) || [];
+        group.push({ ...row, categories: category });
+        categoryMap.set(category.id, group);
+      }
+      setPortfolioItems([...categoryMap.values()].map(group => {
+        const item = group[Math.floor(Math.random() * group.length)];
+        return { title: item.categories!.name_am, size: 'medium', image: item.image_url };
       }));
-
-      // Debug logging
-      console.log('Home - Categories with images:', Array.from(categoryMap.keys()));
-      console.log('Home - Random images selected:', selectedPictures.map(p => ({ category: p.categories?.name_am, image: p.image_url })));
-      console.log('Home - Portfolio items count:', items.length);
-
-      setPortfolioItems(items);
-    } catch (err) {
-      console.error('Error fetching portfolio data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load portfolio data');
-    } finally {
-      setLoading(false);
-    }
+    } catch {
+      setError('Unable to load the portfolio. Please try again.');
+    } finally { setLoading(false); }
   };
 
   useEffect(() => {
@@ -253,7 +126,7 @@ const Home: React.FC<HomeProps> = ({ onPageChange }) => {
           return;
         }
         setHeroImageUrl(pics[0].image_url);
-      } catch (e) {
+      } catch {
         setHeroImageUrl(null);
       } finally {
         // setHeroLoading(false);
@@ -473,6 +346,10 @@ const Home: React.FC<HomeProps> = ({ onPageChange }) => {
                 style={{
                   transitionDelay: `${index * 100}ms`
                 }}
+                role="link"
+                tabIndex={0}
+                aria-label={'Explore ' + item.title}
+                onKeyDown={event => { if (event.key === 'Enter') handleCategoryClick(item.title); }}
                 onClick={() => handleCategoryClick(item.title)}
               >
                 {/* Image Container */}
@@ -481,11 +358,10 @@ const Home: React.FC<HomeProps> = ({ onPageChange }) => {
                   item.size === 'medium' ? 'aspect-[3/4]' :
                   'aspect-square'
                 }`}>
-                  <img 
+                  <MediaCover
                     src={item.image}
                     alt={item.title}
-                    className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
-                    loading="lazy"
+                    className="w-full h-full grayscale group-hover:grayscale-0 transition-all duration-700"
                   />
                   <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-all duration-500"></div>
                   

@@ -13,9 +13,12 @@
     "test:admin": "node tests/admin-ui.mjs",
     "preview": "vite preview",
     "sitemap": "node scripts/generate-sitemap.mjs --base=${SITEMAP_BASE_URL:-https://harypictures.netlify.app}",
-    "check:security": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext netlify/functions/sendTelegram.ts && eslint netlify/functions/sendTelegram.ts && node --test tests/security.mjs && node tests/scan-secrets.mjs"
+    "check:security": "tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext netlify/functions/sendTelegram.ts netlify/functions/videoUpload.ts && eslint netlify/functions/sendTelegram.ts netlify/functions/videoUpload.ts && node --test tests/security.mjs tests/video-api.mjs && node tests/scan-secrets.mjs",
+    "check:media": "tsc --noEmit -p tsconfig.media.json && eslint src/media src/components/Home.tsx src/components/Portfolio.tsx src/components/Services.tsx",
+    "test:media": "node tests/media-ui.mjs"
   },
   "dependencies": {
+    "@mux/upchunk": "^3.5.0",
     "@supabase/supabase-js": "^2.57.0",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",

@@ -1,11 +1,13 @@
 import { supabase } from '../supabaseClient';
 import { convertToWebP } from '../utils/convertToWebP';
+import { createVideoPoster, isVideoUrl, muxPlaybackId, videoMimeType } from '../../media/video';
+import { muxApi, muxEnabled, uploadMuxVideo } from '../../media/muxUploads';
 
 export interface StudioCategory { id: string; name_am: string; slug: string }
 export interface MediaItem { id: string; title: string; image_url: string; category_id: string | null; created_at?: string; categories: StudioCategory | null }
 export const isWebsiteCategory = (category: StudioCategory) => ['hero', 'about-me', 'aboutme'].includes(category.slug.toLowerCase());
 export const messageOf = (error: unknown) => error instanceof Error ? error.message : typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : 'Something went wrong. Please try again.';
-export const isVideo = (url: string) => /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(?:[?#]|$)/i.test(url);
+export const isVideo = isVideoUrl;
 export function mediaTime(item: MediaItem) {
   const date = item.created_at ? Date.parse(item.created_at) : NaN;
   if (Number.isFinite(date)) return date;
@@ -51,14 +53,16 @@ export function storagePath(url: string) {
     return parsed.origin === base.origin && parsed.pathname.startsWith(prefix) ? decodeURIComponent(parsed.pathname.slice(prefix.length)) : null;
   } catch { return null; }
 }
-async function removeStoredFile(url: string) {
+export async function removeStoredFile(url: string) {
+  const playbackId = muxPlaybackId(url);
+  if (playbackId) { await muxApi({ action: 'delete', playbackId }); return; }
   const path = storagePath(url);
   if (!path) return;
   // Shared URL imports must keep working when one record is removed or replaced.
   const references = await supabase.from('pictures').select('id', { count: 'exact', head: true }).eq('image_url', url);
   if (references.error) throw references.error;
   if (references.count) return;
-  const { error } = await supabase.storage.from('pictures').remove([path]);
+  const { error } = await supabase.storage.from('pictures').remove(isVideo(url) ? [path, path + '.poster.webp'] : [path]);
   if (error) throw error;
 }
 export async function deleteMedia(item: MediaItem) {
@@ -78,28 +82,53 @@ export function validateFile(file: File, imagesOnly = false) {
   if (file.size === 0) return 'This file is empty.';
   return '';
 }
-export async function uploadMedia(file: File, category: StudioCategory, title: string, replace?: MediaItem) {
-  const validation = validateFile(file, Boolean(replace) || isWebsiteCategory(category));
+export async function uploadMedia(file: File, category: StudioCategory, title: string, replace?: MediaItem, progress?: (message: string) => void) {
+  const validation = validateFile(file, isWebsiteCategory(category));
   if (validation) throw new Error(validation);
   const video = /\.(mp4|webm|mov|m4v|ogv)$/i.test(file.name);
+  if (video && muxEnabled) return uploadMuxVideo(file, category, title, replace, progress);
   const prepared = video ? file : await convertToWebP(file);
+  let poster: File | undefined;
+  let warning = '';
+  if (video) {
+    try { poster = await createVideoPoster(file); }
+    catch { warning = 'Video saved. This browser could not create its cover. Open the video details to choose a cover image.'; }
+  }
   const extension = video ? file.name.split('.').pop()!.toLowerCase() : 'webp';
   const path = 'public/' + category.slug + '/' + Date.now() + '-' + crypto.randomUUID() + '.' + extension;
   const bucket = supabase.storage.from('pictures');
-  const upload = await bucket.upload(path, prepared, { upsert: false, contentType: video ? file.type || 'video/' + extension : 'image/webp' });
+  const upload = await bucket.upload(path, prepared, { upsert: false, contentType: video ? videoMimeType(file.name) : 'image/webp' });
   if (upload.error) throw upload.error;
+  if (poster) {
+    const cover = await bucket.upload(path + '.poster.webp', poster, { upsert: false, contentType: 'image/webp', cacheControl: '60' });
+    if (cover.error) { await bucket.remove([path, path + '.poster.webp']); throw cover.error; }
+  }
   const publicUrl = bucket.getPublicUrl(path).data.publicUrl;
   const record = { title: title.trim() || file.name.replace(/\.[^.]+$/, ''), image_url: publicUrl, category_id: category.id };
   const saved = replace ? await supabase.from('pictures').update(record).eq('id', replace.id).select('id').single() : await supabase.from('pictures').insert(record);
   if (saved.error) {
-    await bucket.remove([path]);
+    await bucket.remove(poster ? [path, path + '.poster.webp'] : [path]);
     throw saved.error;
   }
   // Keep the currently published photo until the replacement is saved successfully.
   if (replace) {
     try { await removeStoredFile(replace.image_url); }
-    catch { return 'Photo replaced. The old stored file could not be cleaned up.'; }
+    catch { return 'Media replaced. The old stored file could not be cleaned up.'; }
   }
+  return warning;
+}
+
+export async function saveVideoCover(item: MediaItem, cover?: File, seconds = 1) {
+  const path = storagePath(item.image_url);
+  if (!path || !isVideo(item.image_url)) throw new Error('Only videos stored in this library can have saved covers.');
+  if (cover) {
+    const error = validateFile(cover, true);
+    if (error) throw new Error(error);
+    if (cover.size > 20 * 1024 * 1024) throw new Error('Choose a cover image smaller than 20 MB.');
+  }
+  const file = cover ? await convertToWebP(cover) : await createVideoPoster(item.image_url, seconds);
+  const { error } = await supabase.storage.from('pictures').upload(path + '.poster.webp', file, { upsert: true, contentType: 'image/webp', cacheControl: '60' });
+  if (error) throw error;
 }
 export async function importMedia(url: string, category: StudioCategory, title: string) {
   const parsed = new URL(url);

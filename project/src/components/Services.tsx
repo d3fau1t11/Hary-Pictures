@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Instagram } from 'lucide-react';
+import MediaCover from '../media/MediaCover';
 import { supabase } from '../admin/supabaseClient';
 // JWT error handling is now built into the fetch function
 
@@ -44,7 +45,7 @@ interface ServiceItem {
   image: string;
 }
 
-const Services: React.FC<ServicesProps> = ({ onPageChange }) => {
+const Services: React.FC<ServicesProps> = () => {
   const navigate = useNavigate();
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,7 +122,7 @@ const Services: React.FC<ServicesProps> = ({ onPageChange }) => {
 
           // Select one random image from each category
           const selectedPictures: Picture[] = [];
-          categoryMap.forEach((pictures, categoryName) => {
+          categoryMap.forEach((pictures) => {
             if (pictures.length > 0) {
               const randomIndex = Math.floor(Math.random() * pictures.length);
               selectedPictures.push(pictures[randomIndex]);
@@ -170,7 +171,7 @@ const Services: React.FC<ServicesProps> = ({ onPageChange }) => {
 
       // Select one random image from each category
       const selectedPictures: Picture[] = [];
-      categoryMap.forEach((pictures, categoryName) => {
+      categoryMap.forEach((pictures) => {
         if (pictures.length > 0) {
           const randomIndex = Math.floor(Math.random() * pictures.length);
           selectedPictures.push(pictures[randomIndex]);
@@ -178,7 +179,7 @@ const Services: React.FC<ServicesProps> = ({ onPageChange }) => {
       });
 
       // Convert to service items with appropriate sizes
-      const serviceItems: ServiceItem[] = selectedPictures.map((picture, index) => ({
+      const serviceItems: ServiceItem[] = selectedPictures.map((picture) => ({
         title: picture.categories?.name_am || 'Other',
         size: 'medium' as 'large' | 'medium' | 'small', // All items are medium size
         image: picture.image_url
@@ -257,11 +258,10 @@ const Services: React.FC<ServicesProps> = ({ onPageChange }) => {
                 <div className={`relative overflow-hidden mb-4 ${
                   service.size === 'large' ? 'aspect-[16/10]' : 'aspect-[4/5]'
                 }`}>
-                  <img 
+                  <MediaCover
                     src={service.image}
                     alt={service.title}
-                    className="w-full h-full object-cover transition-all duration-700"
-                    loading="lazy"
+                    className="w-full h-full transition-all duration-700"
                   />
                   <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-all duration-500"></div>
                   

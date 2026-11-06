@@ -1,15 +1,17 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Camera, X, Video, Instagram } from 'lucide-react';
+import { Camera, X, Instagram } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import Fullscreen from 'yet-another-react-lightbox/plugins/fullscreen';
 import Zoom from 'yet-another-react-lightbox/plugins/zoom';
 import Slideshow from 'yet-another-react-lightbox/plugins/slideshow';
-import VideoPlugin from 'yet-another-react-lightbox/plugins/video';
+import type {} from 'yet-another-react-lightbox/plugins/video';
 import { supabase } from '../admin/supabaseClient';
 import { checkEnvironment } from '../utils/envCheck';
-import { isVideoUrl, getMediaType } from '../admin/utils/mediaTypeDetection';
+import { isVideoUrl, videoMimeType, videoPosterUrl } from '../media/video';
+import MediaCover from '../media/MediaCover';
+import VideoPlayer from '../media/VideoPlayer';
 // JWT error handling is now built into the fetch function
 
 
@@ -101,7 +103,7 @@ const Portfolio: React.FC = () => {
       }
       
       // Fetch categories and pictures in parallel
-      const [categoriesResult, picturesResult] = await Promise.all([
+      let [categoriesResult, picturesResult] = await Promise.all([
         supabase.from('categories').select('id, name_am, slug'),
         supabase.from('pictures').select(`
           id, 
@@ -122,7 +124,7 @@ const Portfolio: React.FC = () => {
           if (retryResult.error) {
             throw new Error(`Failed to fetch categories: ${retryResult.error.message}`);
           }
-          (categoriesResult as any).data = retryResult.data;
+          categoriesResult = retryResult;
         } else {
           throw new Error(`Failed to fetch categories: ${categoriesResult.error.message}`);
         }
@@ -144,7 +146,7 @@ const Portfolio: React.FC = () => {
           if (retryResult.error) {
             throw new Error(`Failed to fetch pictures: ${retryResult.error.message}`);
           }
-          (picturesResult as any).data = retryResult.data;
+          picturesResult = retryResult;
         } else {
           throw new Error(`Failed to fetch pictures: ${picturesResult.error.message}`);
         }
@@ -382,6 +384,10 @@ const Portfolio: React.FC = () => {
                 style={{
                   transitionDelay: `${index * 50}ms`
                 }}
+                role="button"
+                tabIndex={0}
+                aria-label={'Open ' + item.title}
+                onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setLightboxIndex(index); setLightboxOpen(true); } }}
                 onClick={() => {
                   if (item.image) {
                     setLightboxIndex(index);
@@ -393,30 +399,9 @@ const Portfolio: React.FC = () => {
               >
                 {/* Show image/video if available, else fallback to gradient */}
                 {item.image ? (
-                  isVideoUrl(item.image) ? (
-                    <div className="aspect-square w-full h-full bg-slate-800 relative overflow-hidden">
-                      <video
-                        src={item.image}
-                        className="w-full h-full object-cover transition-all duration-300 group-hover:scale-105"
-                        muted
-                        playsInline
-                        preload="metadata"
-                        loop
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="p-3 bg-black/50 rounded-full backdrop-blur-sm">
-                          <Video className="w-8 h-8 text-white" />
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <img
-                      src={item.image}
-                      alt={item.title}
-                      className="aspect-square w-full h-full object-cover transition-all duration-300 group-hover:scale-105"
-                      loading="lazy"
-                    />
-                  )
+                  <div className="aspect-square w-full">
+                    <MediaCover src={item.image} alt={item.title} className="transition-transform duration-300 group-hover:scale-105" />
+                  </div>
                 ) : (
                 <div className="aspect-square bg-gradient-to-br from-blue-600 via-purple-600 to-cyan-500 opacity-80 group-hover:opacity-90 transition-opacity duration-300"></div>
                 )}
@@ -463,10 +448,11 @@ const Portfolio: React.FC = () => {
               return {
                 ...baseSlide,
                 type: 'video' as const,
+                poster: videoPosterUrl(i.image!),
                 sources: [
                   {
                     src: i.image!,
-                    type: 'video/webm'
+                    type: videoMimeType(i.image!) || 'video/mp4'
                   }
                 ]
               };
@@ -478,8 +464,9 @@ const Portfolio: React.FC = () => {
             };
           })}
           on={{ view: ({ index }) => setLightboxIndex(index) }}
-          plugins={[Fullscreen, Zoom, Slideshow, VideoPlugin]}
+          plugins={[Fullscreen, Zoom, Slideshow]}
           slideshow={{ delay: 8000 }}
+          carousel={{ preload: 0 }}
           video={{
             autoPlay: true,
             playsInline: true,
@@ -487,6 +474,7 @@ const Portfolio: React.FC = () => {
             preload: 'auto'
           }}
           render={{
+            slide: ({ slide, offset }) => slide.type === 'video' ? (offset === 0 ? <VideoPlayer key={slide.sources[0].src} src={slide.sources[0].src} title={('title' in slide ? String(slide.title) : 'Portfolio video')} autoPlay /> : <MediaCover src={slide.sources[0].src} alt={('title' in slide ? String(slide.title) : 'Video')} />) : undefined,
             slideHeader: () => (
               <div className="absolute top-4 left-4 z-50">
                 <div className="text-white text-lg font-semibold bg-black/60 rounded px-3 py-1">
