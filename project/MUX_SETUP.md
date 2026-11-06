@@ -91,6 +91,53 @@ use an uploaded cover image. Mux videos use Mux's generated covers.
   thumbnail images. Mux adjusts quality to the connection; no implementation can
   promise uninterrupted playback on every connection.
 
+## One-time migration of the existing library
+
+`scripts/migrate-mux.mjs` is an operator tool for moving existing Supabase videos
+without downloading them. Normal future uploads still work entirely from the
+live admin on a phone. This tool is never run during a build or sent to visitors.
+
+Credentials are read from ignored `.env` and `.env.netlify` files (or process
+environment variables). Keep the private `.env.netlify` file out of Git; it can
+also be imported into Netlify's environment settings. It contains only the six
+settings listed above, including both public Supabase settings. Existing unrelated
+Netlify variables such as Telegram settings should be preserved.
+
+Run from `project/`:
+
+```sh
+node scripts/migrate-mux.mjs --prepare
+node scripts/migrate-mux.mjs --status
+```
+
+Preparation checks the 10-video limit before creating assets, reuses previously
+prepared imports, and sends shared source URLs to Mux only once. Status checks
+that all four steps are complete: import, encoding, playable HLS and thumbnail
+availability. Repeat `--status` while Mux is processing. State is saved in ignored
+`test-results/mux-migration.json`; keep it until migration is complete.
+
+When ready, choose either publication method:
+
+- Run the generated `test-results/mux-migration.sql` in Supabase's SQL editor.
+  It runs in a transaction and is safe to repeat. If any original record changed,
+  the entire transaction stops without applying the migration.
+- Set `SUPABASE_SERVICE_ROLE_KEY` in your ignored local `.env`, then run
+  `node scripts/migrate-mux.mjs --publish`. This updates records individually,
+  verifies the old URL before each write, and can resume after a partial failure.
+  This privileged key is only for this operator step; do not add it to Netlify or
+  any `VITE_` variable. Remove it locally when finished.
+
+Finally run `node scripts/migrate-mux.mjs --verify`. Titles, categories and record
+IDs are preserved. Original Supabase files are retained for this batch migration;
+`test-results/mux-rollback.sql` can restore their URLs if needed, provided nobody
+has subsequently replaced those records. Review storage cleanup separately after
+the new site is confirmed working.
+
+Changing Netlify environment variables requires a new deploy. Set
+`VITE_MUX_ENABLED=true` for Builds; make the three `MUX_` variables available to
+Functions, and the two `VITE_SUPABASE_` variables to both Builds and Functions.
+Only activate the new upload workflow in the Production deploy context.
+
 ## Validation
 
 `npm run check:admin`, `npm run check:media`, and `npm run check:security` check the
@@ -98,6 +145,8 @@ updated code. `npm run test:media` uses intercepted APIs and synthetic video;
 it never uploads to a real Mux account. `npm run test:admin` exercises the existing
 admin flows. A live upload/playback check is still necessary after credentials
 are configured; automated tests cannot verify your provider account or quotas.
+`node --test tests/mux-migration.mjs` checks migration limits, shared sources,
+retry planning and guarded SQL generation without contacting either provider.
 
 References: [Mux access tokens](https://www.mux.com/docs/core/stream-video-files),
 [direct uploads](https://www.mux.com/docs/guides/upload-files-directly),
