@@ -80,6 +80,9 @@ Hary-Pictures/
 
 ## Contributing
 
+Only the root `README.md` may be committed or published as Markdown. Keep all
+other `.md` files local and ignored by Git; do not force-add them.
+
 Contributions are welcome! Please follow these steps:
 
 1. Fork the repository

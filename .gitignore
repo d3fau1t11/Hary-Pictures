@@ -22,3 +22,7 @@ Thumbs.db
 .vscode/
 .idea/
 project/ADMIN_STUDIO.md
+
+# Publish only the root README; keep all other Markdown documentation local.
+*.[mM][dD]
+!/README.md
